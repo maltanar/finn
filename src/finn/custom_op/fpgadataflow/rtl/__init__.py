@@ -41,6 +41,7 @@ from finn.custom_op.fpgadataflow.rtl.hwsoftmax_rtl import HWSoftmax_rtl
 from finn.custom_op.fpgadataflow.rtl.hwwhere_rtl import HWWhere_rtl
 from finn.custom_op.fpgadataflow.rtl.inner_shuffle_rtl import InnerShuffle_rtl
 from finn.custom_op.fpgadataflow.rtl.layernorm_rtl import LayerNorm_rtl
+from finn.custom_op.fpgadataflow.rtl.lutneuron_rtl import LUTNeuron_rtl
 from finn.custom_op.fpgadataflow.rtl.matrixvectoractivation_rtl import MVAU_rtl
 from finn.custom_op.fpgadataflow.rtl.pad1d_rtl import Pad1D_rtl
 from finn.custom_op.fpgadataflow.rtl.pwpolyf_rtl import PWPolyF_rtl
@@ -64,6 +65,7 @@ custom_op["ElementwiseSub_rtl"] = ElementwiseSub_rtl
 custom_op["ElementwiseMul_rtl"] = ElementwiseMul_rtl
 custom_op["FMPadding_rtl"] = FMPadding_rtl
 custom_op["LayerNorm_rtl"] = LayerNorm_rtl
+custom_op["LUTNeuron_rtl"] = LUTNeuron_rtl
 custom_op["StreamingDataWidthConverter_rtl"] = StreamingDataWidthConverter_rtl
 custom_op["StreamingFIFO_rtl"] = StreamingFIFO_rtl
 custom_op["MVAU_rtl"] = MVAU_rtl
