@@ -1422,6 +1422,77 @@ class InferLookupLayer(Transformation):
         return (model, graph_modified)
 
 
+class InferLUTNeuronLayer(Transformation):
+    """Convert qonnx.custom_op.lnn LookupTable nodes with constant indices and
+    table inputs into LUTNeuron HW layers."""
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for node in graph.node:
+            node_ind += 1
+            if node.op_type != "LookupTable" or node.domain != "qonnx.custom_op.lnn":
+                continue
+            node_inst = getCustomOp(node)
+            indices = model.get_initializer(node.input[1])
+            table = model.get_initializer(node.input[2])
+            if indices is None or table is None:
+                warnings.warn(
+                    "%s: indices/table are not constant, not converting to LUTNeuron" % node.name
+                )
+                continue
+            if indices.ndim != 2 or table.ndim != 2:
+                warnings.warn("%s: expected 2D indices and table, skipping" % node.name)
+                continue
+            ishape = model.get_tensor_shape(node.input[0])
+            if ishape is None or len(ishape) < 2:
+                warnings.warn("%s: could not resolve input shape, skipping" % node.name)
+                continue
+            input_bits = node_inst.get_nodeattr("input_bits")
+            idt = model.get_tensor_datatype(node.input[0])
+            if (not idt.is_integer()) or idt.signed() or idt.bitwidth() != input_bits:
+                warnings.warn(
+                    "%s: input datatype %s does not match input_bits=%d, skipping"
+                    % (node.name, idt.name, input_bits)
+                )
+                continue
+            num_neurons, fan_in = indices.shape
+            if table.shape != (num_neurons, 2 ** (fan_in * input_bits)):
+                warnings.warn("%s: table shape inconsistent with indices, skipping" % node.name)
+                continue
+            if indices.min() < 0 or indices.max() >= ishape[-1]:
+                warnings.warn("%s: indices out of range for input shape, skipping" % node.name)
+                continue
+            # the LookupTable op derives the output datatype from the table's
+            # container type and its out_bits attribute
+            node_inst.infer_node_datatype(model)
+            odt = model.get_tensor_datatype(node.output[0])
+
+            new_node = helper.make_node(
+                "LUTNeuron",
+                list(node.input),
+                [node.output[0]],
+                domain="finn.custom_op.fpgadataflow",
+                backend="fpgadataflow",
+                name="LUTNeuron_" + node.name,
+                NumInputs=int(ishape[-1]),
+                NumNeurons=int(num_neurons),
+                FanIn=int(fan_in),
+                InputType=idt.name,
+                OutputType=odt.name,
+                numInputVectors=[int(x) for x in ishape[:-1]],
+            )
+            graph.node.insert(node_ind, new_node)
+            graph.node.remove(node)
+            graph_modified = True
+
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+        return (model, graph_modified)
+
+
 class InferConcatLayer(Transformation):
     """Convert suitable Concat nodes (operating on last/-1 axis)
     into StreamingConcat HW layers."""
