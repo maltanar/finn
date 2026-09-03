@@ -164,13 +164,14 @@ class Pool(HWCustomOp):
     def infer_node_datatype(self, model):
         """Infers the datatype of the output from the node attribute."""
         node = self.onnx_node
-        # Get the new datatype
-        new_dtype = model.get_tensor_datatype(node.input[0])
-        # Set the new datatype attribute
-        self.set_nodeattr("InputDataType", new_dtype.name)
-        # data type stays the same
-        dtype = self.get_output_datatype()
-        model.set_tensor_datatype(node.output[0], dtype)
+        idt = model.get_tensor_datatype(node.input[0])
+        self.set_nodeattr("InputDataType", idt.name)
+        if self.get_nodeattr("Function") == "MaxPool":
+            self.set_nodeattr("OutputDataType", idt.name)
+        model.set_tensor_datatype(
+            node.output[0],
+            DataType[self.get_nodeattr("OutputDataType")],
+        )
 
     def verify_node(self):
         """Verifies the node configuration attributes."""
