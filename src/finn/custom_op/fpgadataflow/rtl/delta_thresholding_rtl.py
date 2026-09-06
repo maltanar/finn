@@ -9,7 +9,11 @@ from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.rtl.thresholding_rtl import Thresholding_rtl
 from finn.transformation.fpgadataflow.delta_compress_thresholds import _smallest_dtype
-from finn.util.data_packing import pack_innermost_dim_as_hex_string
+from finn.util.data_packing import (
+    npy_to_rtlsim_input,
+    pack_innermost_dim_as_hex_string,
+    rtlsim_output_to_npy,
+)
 from finn.util.settings import get_settings
 
 
@@ -153,6 +157,13 @@ class DeltaThresholding_rtl(Thresholding_rtl):
         self.set_nodeattr("ip_path", code_gen_dir)
 
     def execute_node(self, context, graph):
+        mode = self.get_nodeattr("exec_mode")
+        if mode == "rtlsim":
+            return self._execute_rtlsim(context)
+        if mode != "cppsim":
+            raise Exception(
+                "Invalid value for attribute exec_mode: {}".format(mode)
+            )
         bases, steps, errors, counts = (
             context[self.onnx_node.input[1]],
             context[self.onnx_node.input[2]],
@@ -166,6 +177,45 @@ class DeltaThresholding_rtl(Thresholding_rtl):
         input_values = context[self.onnx_node.input[0]]
         output = self._execute_thresholds(input_values, thresholds)
         context[self.onnx_node.output[0]] = output.astype(np.float32)
+
+    def _execute_rtlsim(self, context):
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        node = self.onnx_node
+        input_values = context[node.input[0]]
+        assert str(input_values.dtype) in ["float32", "float16"]
+        reshaped_input = input_values.reshape(self.get_folded_input_shape()).copy()
+        if self.get_input_datatype() == DataType["BIPOLAR"]:
+            reshaped_input = (reshaped_input + 1) / 2
+            export_idt = DataType["BINARY"]
+        else:
+            export_idt = self.get_input_datatype()
+        input_path = os.path.join(code_gen_dir, "input_0.npy")
+        np.save(input_path, reshaped_input)
+
+        sim = self.get_rtlsim()
+        input_bits = self.get_instream_width()
+        rtlsim_input = npy_to_rtlsim_input(input_path, export_idt, input_bits)
+        io_dict = {"inputs": {"in0": rtlsim_input}, "outputs": {"out": []}}
+        self.reset_rtlsim(sim)
+        self.rtlsim_multi_io(sim, io_dict)
+        self.close_rtlsim(sim)
+
+        output_path = os.path.join(code_gen_dir, "output.npy")
+        output_dtype = self.get_output_datatype()
+        output_shape = self.get_folded_output_shape()
+        rtlsim_output_to_npy(
+            io_dict["outputs"]["out"],
+            output_path,
+            output_dtype,
+            output_shape,
+            self.get_outstream_width(),
+            output_dtype.bitwidth(),
+        )
+        output = np.load(output_path)
+        output = np.asarray([output], dtype=np.float32).reshape(self.get_normal_output_shape())
+        if output_dtype == DataType["BIPOLAR"]:
+            output = 2 * output - 1
+        context[node.output[0]] = output
 
     def _execute_thresholds(self, input_values, thresholds):
         from qonnx.custom_op.general.multithreshold import multithreshold
