@@ -9,6 +9,7 @@ module delta_thresholding #(
     parameter int unsigned BW = 1,
     parameter int unsigned SW = 1,
     parameter int unsigned EW = 1,
+    parameter int unsigned CW = 1,
     parameter int unsigned C = 1,
     parameter int unsigned PE = 1,
     parameter int unsigned NUM_STEPS = 1,
@@ -19,6 +20,7 @@ module delta_thresholding #(
     parameter BASE_PATH = "",
     parameter STEP_PATH = "",
     parameter ERROR_PATH = ""
+    , parameter COUNT_PATH = ""
 ) (
     input logic clk,
     input logic rst,
@@ -37,6 +39,7 @@ module delta_thresholding #(
     logic [BW-1:0] base_mem [PE][CF];
     logic [SW-1:0] step_mem [PE][CF];
     logic error_mem [PE][CF * NUM_STEPS];
+    logic [CW-1:0] count_mem [PE][CF];
     logic [PE-1:0][WI-1:0] input_reg;
     logic [PE-1:0][O_BITS-1:0] count_reg;
     logic [PE-1:0][EW-1:0] residual_reg;
@@ -58,6 +61,8 @@ module delta_thresholding #(
                 $readmemh($sformatf("%s%0d.dat", STEP_PATH, pe), step_mem[pe]);
             if (ERROR_PATH != "")
                 $readmemh($sformatf("%s%0d.dat", ERROR_PATH, pe), error_mem[pe]);
+            if (COUNT_PATH != "")
+                $readmemh($sformatf("%s%0d.dat", COUNT_PATH, pe), count_mem[pe]);
         end
     end
 
@@ -99,6 +104,7 @@ module delta_thresholding #(
                     logic signed [COMP_W-1:0] input_value;
                     logic [EW-1:0] residual_value;
                     logic comparison;
+                    logic [CW-1:0] count_value;
                     integer error_index;
                     integer output_value;
                     if (BASE_SIGNED)
@@ -119,6 +125,7 @@ module delta_thresholding #(
                         );
                     error_index = int'(fold_reg) * NUM_STEPS + int'(step_index);
                     residual_value = residual_reg[pe] + error_mem[pe][error_index];
+                    count_value = count_mem[pe][fold_reg];
                     threshold_value = base_value
                         + step_value * $signed({1'b0, step_index})
                         + residual_value;
@@ -128,7 +135,7 @@ module delta_thresholding #(
                         );
                     else
                         input_value = $signed({{(COMP_W-WI){1'b0}}, input_reg[pe]});
-                    comparison = threshold_value <= input_value;
+                    comparison = (step_index < count_value) && (threshold_value <= input_value);
                     count_reg[pe] <= count_reg[pe] + comparison;
                     residual_reg[pe] <= residual_value;
                     output_value = int'(count_reg[pe]) + int'(comparison) + BIAS;

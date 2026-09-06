@@ -91,7 +91,7 @@ def test_delta_compress_promotes_node_and_preserves_values():
 
     node = model.graph.node[0]
     assert node.op_type == "DeltaThresholding_rtl"
-    assert len(node.input) == 4
+    assert len(node.input) == 5
     np.testing.assert_array_equal(model.get_initializer(node.input[1]), [15, 4])
     np.testing.assert_array_equal(model.get_initializer(node.input[2]), [2, 2])
     np.testing.assert_array_equal(

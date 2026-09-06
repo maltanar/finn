@@ -69,27 +69,48 @@ class DeltaCompressThresholds(Transformation):
             if thresholds.shape[0] != inst.get_nodeattr("NumChannels"):
                 continue
 
-            encodings = [_find_delta_encoding(row) for row in thresholds]
+            max_input = inst.get_input_datatype().max()
+            retained = []
+            counts = []
+            for row in thresholds:
+                row = np.asarray(row)
+                count = row.size
+                while count > 0 and row[count - 1] > max_input:
+                    count -= 1
+                if count == 0:
+                    retained.append(np.asarray([0], dtype=np.int64))
+                else:
+                    retained.append(row[:count])
+                counts.append(count)
+
+            max_steps = max(1, max(counts))
+            encodings = [_find_delta_encoding(row) for row in retained]
             if any(encoding is None for encoding in encodings):
                 continue
 
             bases = np.asarray([encoding[0] for encoding in encodings], dtype=np.int64)
             steps = np.asarray([encoding[1] for encoding in encodings], dtype=np.int64)
-            errors = np.asarray([encoding[2] for encoding in encodings], dtype=np.uint8)
+            errors = np.zeros((len(encodings), max_steps), dtype=np.uint8)
+            for row_index, encoding in enumerate(encodings):
+                errors[row_index, : len(encoding[2])] = encoding[2]
+            counts = np.asarray(counts, dtype=np.int64)
 
             base_name = node.name + "_base"
             step_name = node.name + "_step"
             error_name = node.name + "_error"
+            count_name = node.name + "_count"
             model.set_initializer(base_name, bases)
             model.set_initializer(step_name, steps)
             model.set_initializer(error_name, errors)
+            model.set_initializer(count_name, counts)
             model.set_tensor_datatype(base_name, _smallest_dtype(bases))
             model.set_tensor_datatype(step_name, _smallest_dtype(steps))
             model.set_tensor_datatype(error_name, DataType["UINT1"])
+            model.set_tensor_datatype(count_name, DataType.get_smallest_possible(max_steps))
 
             new_node = helper.make_node(
                 "DeltaThresholding_rtl",
-                [node.input[0], base_name, step_name, error_name],
+                [node.input[0], base_name, step_name, error_name, count_name],
                 list(node.output),
                 domain="finn.custom_op.fpgadataflow.rtl",
                 name=node.name,
@@ -98,7 +119,7 @@ class DeltaCompressThresholds(Transformation):
                 new_node.attribute.append(attribute)
             new_inst = getCustomOp(new_node)
             new_inst.set_nodeattr("ActVal", int(actval))
-            new_inst.set_nodeattr("numSteps", int(thresholds.shape[1]))
+            new_inst.set_nodeattr("numSteps", int(max_steps))
             new_inst.set_nodeattr("weightDataType", weight_dtype.name)
             graph.node.insert(node_index, new_node)
             graph.node.remove(node)

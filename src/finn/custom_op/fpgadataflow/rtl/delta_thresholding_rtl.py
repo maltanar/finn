@@ -21,10 +21,15 @@ class DeltaThresholding_rtl(Thresholding_rtl):
             model.get_initializer(self.onnx_node.input[1]),
             model.get_initializer(self.onnx_node.input[2]),
             model.get_initializer(self.onnx_node.input[3]),
+            model.get_initializer(self.onnx_node.input[4]),
         )
 
+    def minimize_accumulator_width(self, model):
+        """Compressed parameters already retain the source threshold dtype."""
+        return self.get_weight_datatype()
+
     def _write_parameter_files(self, model, code_gen_dir):
-        bases, steps, errors = self._get_compressed_parameters(model)
+        bases, steps, errors, counts = self._get_compressed_parameters(model)
         pe = self.get_nodeattr("PE")
         channels = self.get_nodeattr("NumChannels")
         channel_fold = channels // pe
@@ -57,12 +62,17 @@ class DeltaThresholding_rtl(Thresholding_rtl):
                 errors[channel_indices].reshape(-1),
                 DataType["UINT1"],
             )
+            write_values(
+                os.path.join(code_gen_dir, f"{self.onnx_node.name}_count_{pe_value}.dat"),
+                counts[channel_indices],
+                _smallest_dtype(counts),
+            )
         return base_dtype.bitwidth(), step_dtype.bitwidth()
 
     def prepare_codegen_rtl_values(self, model):
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         base_width, step_width = self._write_parameter_files(model, code_gen_dir)
-        bases, steps, _ = self._get_compressed_parameters(model)
+        bases, steps, _, counts = self._get_compressed_parameters(model)
         base_dtype = _smallest_dtype(bases)
         step_dtype = _smallest_dtype(steps)
         input_dtype = self.get_input_datatype()
@@ -102,6 +112,8 @@ class DeltaThresholding_rtl(Thresholding_rtl):
             "$BASE_PATH$": ['"./%s_base_"' % self.onnx_node.name],
             "$STEP_PATH$": ['"./%s_step_"' % self.onnx_node.name],
             "$ERROR_PATH$": ['"./%s_error_"' % self.onnx_node.name],
+            "$COUNT_PATH$": ['"./%s_count_"' % self.onnx_node.name],
+            "$CW$": [str(_smallest_dtype(counts).bitwidth())],
         }
 
     def get_rtl_file_list(self, abspath=False):
@@ -121,7 +133,7 @@ class DeltaThresholding_rtl(Thresholding_rtl):
         pe = self.get_nodeattr("PE")
         return [
             os.path.join(path, f"{self.onnx_node.name}_{kind}_{pe_value}.dat")
-            for kind in ("base", "step", "error")
+            for kind in ("base", "step", "error", "count")
             for pe_value in range(pe)
         ]
 
@@ -141,13 +153,16 @@ class DeltaThresholding_rtl(Thresholding_rtl):
         self.set_nodeattr("ip_path", code_gen_dir)
 
     def execute_node(self, context, graph):
-        bases, steps, errors = (
+        bases, steps, errors, counts = (
             context[self.onnx_node.input[1]],
             context[self.onnx_node.input[2]],
             context[self.onnx_node.input[3]],
+            context[self.onnx_node.input[4]],
         )
         thresholds = bases[:, None] + np.arange(self.get_nodeattr("numSteps")) * steps[:, None]
         thresholds = thresholds + np.cumsum(errors, axis=1)
+        threshold_indices = np.arange(self.get_nodeattr("numSteps"))[None, :]
+        thresholds = np.where(threshold_indices < counts[:, None], thresholds, np.inf)
         input_values = context[self.onnx_node.input[0]]
         output = self._execute_thresholds(input_values, thresholds)
         context[self.onnx_node.output[0]] = output.astype(np.float32)

@@ -8,6 +8,7 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
     parameter BW = $BW$,
     parameter SW = $SW$,
     parameter EW = $EW$,
+    parameter CW = $CW$,
     parameter C = $C$,
     parameter PE = $PE$,
     parameter NUM_STEPS = $NUM_STEPS$,
@@ -18,8 +19,12 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
     parameter BASE_PATH = $BASE_PATH$,
     parameter STEP_PATH = $STEP_PATH$,
     parameter ERROR_PATH = $ERROR_PATH$
+    , parameter COUNT_PATH = $COUNT_PATH$
 ) (
+    (* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF in0_V:out_V, ASSOCIATED_RESET ap_rst_n" *)
+    (* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk CLK" *)
     input ap_clk,
+    (* X_INTERFACE_PARAMETER = "POLARITY ACTIVE_LOW" *)
     input ap_rst_n,
     output in0_V_TREADY,
     input in0_V_TVALID,
@@ -30,9 +35,9 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 );
     delta_thresholding #(
         .N(N), .O_BITS(O_BITS), .WI(WI), .WT(WT), .BW(BW), .SW(SW),
-        .C(C), .PE(PE), .NUM_STEPS(NUM_STEPS), .SIGNED(SIGNED), .EW(EW),
+        .C(C), .PE(PE), .NUM_STEPS(NUM_STEPS), .SIGNED(SIGNED), .EW(EW), .CW(CW),
         .BASE_SIGNED(BASE_SIGNED), .STEP_SIGNED(STEP_SIGNED), .BIAS(BIAS),
-        .BASE_PATH(BASE_PATH), .STEP_PATH(STEP_PATH), .ERROR_PATH(ERROR_PATH)
+        .BASE_PATH(BASE_PATH), .STEP_PATH(STEP_PATH), .ERROR_PATH(ERROR_PATH), .COUNT_PATH(COUNT_PATH)
     ) core (
         .clk(ap_clk), .rst(!ap_rst_n),
         .irdy(in0_V_TREADY), .ivld(in0_V_TVALID), .idat(in0_V_TDATA[PE*WI-1:0]),
