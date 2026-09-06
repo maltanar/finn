@@ -169,6 +169,7 @@ class SetFolding(Transformation):
             "Thresholding_rtl",
             "ReplicateStream_hls",
             *ELEMENTWISE_BINARY_OPS,
+            "DeltaThresholding_rtl",
             "Squeeze_hls",
             "Unsqueeze_hls",
             "Reshape_rtl",

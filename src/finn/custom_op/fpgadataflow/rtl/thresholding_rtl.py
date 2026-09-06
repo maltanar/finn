@@ -220,8 +220,29 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         if not self.get_nodeattr("mlo_max_iter"):
             self.generate_params(model, t_path)
 
-        bias = self.get_nodeattr("ActVal")  # activation bias value
+        thresholds, bias, wdt = self.get_rtl_thresholds(thresholds)
+        output_data_type = self.get_nodeattr("outputDataType")  # output precision
         input_data_type = self.get_nodeattr("inputDataType")  # input/threshold precision
+        o_bitwidth = DataType[output_data_type].bitwidth()
+        expected_thresholds = 2**o_bitwidth - 1
+
+        t_path = self.get_nodeattr("code_gen_dir_ipgen")
+        if self.get_nodeattr("runtime_writeable_weights") == 1:
+            thresh_file_name = f"{t_path}/memblock.dat"
+            self.make_weight_file(thresholds, "decoupled", thresh_file_name)
+
+        n_thres_steps = thresholds.shape[1]
+
+        # add dummy dimension as final dimension (that's what gets packed with next call)
+        t_expand = np.expand_dims(thresholds, axis=-1)
+        bw_hexdigit = roundup_to_integer_multiple(wdt.bitwidth(), 4)
+        t_packed = pack_innermost_dim_as_hex_string(
+            t_expand,
+            wdt,
+            bw_hexdigit,
+            prefix="",
+        )
+
         pe = self.get_nodeattr("PE")
         num_channels = self.get_nodeattr("NumChannels")  # number of channels
         n_thres_steps = self.get_nodeattr("numSteps")
@@ -314,6 +335,30 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         code_gen_dict["$DEPTH_TRIGGER_BRAM$"] = [str(depth_trigger_bram)]
         code_gen_dict["$DEEP_PIPELINE$"] = [str(deep_pipeline)]
         return code_gen_dict
+
+    def get_rtl_thresholds(self, thresholds):
+        """Return the threshold sequence and bias used by the RTL core."""
+        output_dtype = self.get_output_datatype()
+        input_dtype = self.get_input_datatype()
+        bias = self.get_nodeattr("ActVal")
+        wdt = self.get_input_datatype(1)
+        expected_thresholds = 2 ** output_dtype.bitwidth() - 1
+        if expected_thresholds != self.get_nodeattr("numSteps"):
+            if output_dtype.signed():
+                thresholds = np.insert(thresholds, 0, wdt.min(), axis=1)
+                bias -= 1
+            else:
+                max_val = wdt.max()
+                if max_val > input_dtype.max():
+                    thresholds = np.insert(thresholds, len(thresholds[0]), max_val, axis=1)
+                else:
+                    max_val += 1
+                    if not wdt.signed():
+                        wdt = DataType.get_smallest_possible(max_val)
+                    else:
+                        wdt = DataType.get_smallest_possible(-max_val - 1)
+                    thresholds = np.insert(thresholds, len(thresholds[0]), max_val, axis=1)
+        return thresholds, bias, wdt
 
     def get_rtl_file_list(self, abspath=False):
         """Thresholding binary search RTL file list."""

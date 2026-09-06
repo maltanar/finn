@@ -659,7 +659,11 @@ class DataflowBuildConfig(DataClassJSONMixin, DataClassYAMLMixin):
     #: activations in FINN) will be implemented as standalone HW layers,
     #: instead of being part of MatrixVectorActivation layer. This gives larger
     #: flexibility, and makes it possible to have runtime-writable thresholds.
-    standalone_thresholds: bool = False
+    standalone_thresholds: Optional[bool] = False
+
+    #: (Optional) Replace eligible RTL thresholding layers with their
+    #: delta-compressed implementation.
+    enable_threshold_delta_compression: Optional[bool] = False
 
     #: (Optional) Bitwidth threshold for choosing between Requant and Thresholding
     #: for MultiThreshold nodes. When output bitwidth >= this threshold, Requant is

@@ -54,6 +54,7 @@ import finn.custom_op.fpgadataflow.rtl.reshape_rtl
 from finn.custom_op.fpgadataflow.rtl.convolutioninputgenerator_rtl import (
     ConvolutionInputGenerator_rtl,
 )
+from finn.custom_op.fpgadataflow.rtl.delta_thresholding_rtl import DeltaThresholding_rtl
 from finn.custom_op.fpgadataflow.rtl.crop_rtl import Crop_rtl
 from finn.custom_op.fpgadataflow.rtl.elementwise_binary_rtl import (
     ElementwiseAdd_rtl,
@@ -104,3 +105,4 @@ custom_op["PWPolyF_rtl"] = PWPolyF_rtl
 custom_op["HWSoftmax_rtl"] = HWSoftmax_rtl
 custom_op["HWWhere_rtl"] = HWWhere_rtl
 custom_op["SelectToken_rtl"] = SelectToken_rtl
+custom_op["DeltaThresholding_rtl"] = DeltaThresholding_rtl

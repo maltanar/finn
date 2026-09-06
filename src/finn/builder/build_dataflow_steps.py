@@ -110,6 +110,9 @@ from finn.transformation.fpgadataflow.convert_to_hw.layer_norm import InferLayer
 from finn.transformation.fpgadataflow.convert_to_hw.lookup import InferLookupLayer
 from finn.transformation.fpgadataflow.convert_to_hw.pad1d import InferPad1DLayer
 from finn.transformation.fpgadataflow.convert_to_hw.pool import InferPool
+from finn.transformation.fpgadataflow.delta_compress_thresholds import (
+    DeltaCompressThresholds,
+)
 from finn.transformation.fpgadataflow.convert_to_hw.pool_from_reduce import InferPoolFromReduce
 from finn.transformation.fpgadataflow.convert_to_hw.pwpolyf import InferPWPolyFLayer
 from finn.transformation.fpgadataflow.convert_to_hw.quantized_matrix_vector_activation import (
@@ -1379,6 +1382,8 @@ def step_specialize_layers(model: ModelWrapper, cfg: DataflowBuildConfig) -> Mod
         model = model.transform(GiveUniqueNodeNamesRecursive())
         model = model.transform(ApplyConfig(cfg.specialize_layers_config_file))
     model = model.transform(SpecializeLayers(cfg._resolve_fpga_part()))
+    if cfg.enable_threshold_delta_compression:
+        model = model.transform(DeltaCompressThresholds())
     model = model.transform(GiveUniqueNodeNamesRecursive())
     model = model.transform(InferShapes())
     model = model.transform(InferDataTypes())
