@@ -3,6 +3,7 @@
 import json
 import numpy as np
 import os
+import queue
 import time
 from finn_plus_driver.hwh import get_clk_wiz_params_from_hwh
 from finn_plus_driver.packing import finnpy_to_packed_bytearray, packed_bytearray_to_finnpy
@@ -61,6 +62,7 @@ class FINNDMAOverlay(Overlay):
         self.idma = []
         self.odma = []
         self.odma_handle = []
+        self._pipeline_slots = None
         if "idma_names" in io_shape_dict.keys():
             for idma_name in io_shape_dict["idma_names"]:
                 self.idma.append(getattr(self, idma_name))
@@ -329,6 +331,78 @@ class FINNDMAOverlay(Overlay):
             fast_mode=True,
         )
         return ibuf_packed
+
+    def enable_pipeline_buffers(self, count=2):
+        """Allocate ping-pong buffers for host preparation and FPGA execution."""
+        if self._pipeline_slots is not None:
+            return
+        cacheable = {"alveo": False, "zynq-iodma": True}[self.platform]
+        slots = []
+        for _ in range(count):
+            slots.append(
+                {
+                    "inputs": [
+                        allocate(
+                            shape=self.ishape_packed(i),
+                            dtype=np.uint8,
+                            cacheable=cacheable,
+                            target=self.device,
+                        )
+                        for i in range(self.num_inputs)
+                    ],
+                    "outputs": [
+                        allocate(
+                            shape=self.oshape_packed(i),
+                            dtype=np.uint8,
+                            cacheable=cacheable,
+                            target=self.device,
+                        )
+                        for i in range(self.num_outputs)
+                    ],
+                    "output_host": [
+                        np.empty_like(self.obuf_packed[i]) for i in range(self.num_outputs)
+                    ],
+                }
+            )
+        self._pipeline_slots = queue.Queue(maxsize=count)
+        for slot in slots:
+            self._pipeline_slots.put(slot)
+
+    def prepare_input_buffer(self, packed_inputs):
+        """Copy packed input into an available ping-pong device buffer."""
+        if self._pipeline_slots is None:
+            self.enable_pipeline_buffers()
+        slot = self._pipeline_slots.get()
+        try:
+            for index, packed in enumerate(packed_inputs):
+                np.copyto(slot["inputs"][index], packed)
+                slot["inputs"][index].flush()
+            return slot
+        except Exception:
+            self._pipeline_slots.put(slot)
+            raise
+
+    def execute_prepared(self, slot, batch_size=None):
+        """Execute a prepared ping-pong slot and return normal output arrays."""
+        previous_inputs = self.ibuf_packed_device
+        previous_outputs = self.obuf_packed_device
+        previous_output_host = self.obuf_packed
+        self.ibuf_packed_device = slot["inputs"]
+        self.obuf_packed_device = slot["outputs"]
+        self.obuf_packed = slot["output_host"]
+        try:
+            self.execute_on_buffers(batch_size=batch_size)
+            outputs = []
+            for index in range(self.num_outputs):
+                self.copy_output_data_from_device(self.obuf_packed[index], ind=index)
+                obuf_folded = self.unpack_output(self.obuf_packed[index], ind=index)
+                outputs.append(self.unfold_output(obuf_folded, ind=index))
+            return outputs[0] if self.num_outputs == 1 else outputs
+        finally:
+            self.ibuf_packed_device = previous_inputs
+            self.obuf_packed_device = previous_outputs
+            self.obuf_packed = previous_output_host
+            self._pipeline_slots.put(slot)
 
     def unpack_output(self, obuf_packed, ind=0):
         """Unpacks the packed output buffer from accelerator.
