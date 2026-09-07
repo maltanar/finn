@@ -632,7 +632,7 @@ class FINNLiveFIFOOverlay(FINNInstrumentationOverlay):
         if folding_config_lfs:
             for key in list(folding_config_lfs.keys()):
                 if key.startswith("StreamingFIFO"):
-                    fifo_name = "StreamingFIFO_rtl_%d" % int(key.removeprefix("StreamingFIFO_"))
+                    fifo_name = "StreamingFIFO_rtl_%d" % int(key.split("StreamingFIFO_", 1)[1])
                     # Rename FIFO from StreamingFIFO_* to StreamingFIFO_rtl_*
                     folding_config_lfs[fifo_name] = folding_config_lfs.pop(key)
                     folding_config_lfs[fifo_name]["depth"] = fifo_depth_export[fifo_name]["depth"]
