@@ -317,6 +317,10 @@ class FINNDMAOverlay(Overlay):
     def pack_input(self, ibuf_folded, ind=0):
         """Packs folded input and reverses both SIMD dim and endianness.
         Gets input data in folded shape and returns packed input data."""
+        if self.idt(ind).name == "FLOAT32" and ibuf_folded.shape[-1] == 1:
+            # FLOAT32 is already the accelerator wire element; avoid the
+            # per-element bitstring conversion on the PYNQ ARM CPU.
+            return np.ascontiguousarray(ibuf_folded, dtype=np.float32).view(np.uint8)
         ibuf_packed = finnpy_to_packed_bytearray(
             ibuf_folded,
             self.idt(ind),
