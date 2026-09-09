@@ -54,7 +54,10 @@ module delta_thresholding #(
             $error("Delta thresholding requires C to be divisible by PE.");
             $finish;
         end
-        for (int pe = 0; pe < PE; pe++) begin
+    end
+
+    for (genvar pe = 0; pe < PE; pe++) begin : init_mem
+        initial begin
             if (BASE_PATH != "")
                 $readmemh($sformatf("%s%0d.dat", BASE_PATH, pe), base_mem[pe]);
             if (STEP_PATH != "")
