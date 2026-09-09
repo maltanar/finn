@@ -28,6 +28,7 @@ def make_thresholding_model(
     input_dtype="INT8",
     threshold_dtype="INT8",
     pe=1,
+    actval=0,
 ):
     channels = thresholds.shape[0]
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, channels])
@@ -45,7 +46,7 @@ def make_thresholding_model(
         weightDataType=threshold_dtype,
         outputDataType=output_dtype,
         numInputVectors=[1],
-        ActVal=0,
+        ActVal=actval,
         name="thresholding",
     )
     graph = helper.make_graph([node], "delta_thresholding", [inp], [out])
@@ -163,12 +164,17 @@ def test_delta_compress_configuration_sweep(
     output_dtype, threshold_dtype, input_dtype, narrow, pe
 ):
     thresholds = make_sweep_thresholds(output_dtype, threshold_dtype, input_dtype, narrow)
+    act = DataType[output_dtype]
+    actval = act.min()
+    if narrow and act.signed():
+        actval += 1
     model_before = make_thresholding_model(
         thresholds,
         output_dtype=output_dtype,
         input_dtype=input_dtype,
         threshold_dtype=threshold_dtype,
         pe=pe,
+        actval=actval,
     )
     model_before = model_before.transform(SetExecMode("cppsim"))
     input_values = gen_finn_dt_tensor(DataType[input_dtype], (1, 4))
@@ -179,6 +185,47 @@ def test_delta_compress_configuration_sweep(
     actual = oxe.execute_onnx(model_after, input_dict)["out"]
 
     assert model_after.graph.node[0].op_type == "DeltaThresholding_rtl"
+    np.testing.assert_array_equal(actual, expected)
+
+
+@pytest.mark.parametrize(
+    "output_dtype, threshold_dtype, input_dtype, narrow",
+    [
+        ("UINT2", "UINT8", "UINT8", False),
+        ("UINT3", "UINT8", "INT8", True),
+        ("INT2", "INT8", "INT8", False),
+        ("INT3", "INT8", "UINT8", True),
+    ],
+)
+@pytest.mark.parametrize("pe", [1, 2, 4])
+def test_delta_thresholding_rtlsim_configuration_sweep(
+    output_dtype, threshold_dtype, input_dtype, narrow, pe
+):
+    thresholds = make_sweep_thresholds(output_dtype, threshold_dtype, input_dtype, narrow)
+    act = DataType[output_dtype]
+    actval = act.min()
+    if narrow and act.signed():
+        actval += 1
+    model_reference = make_thresholding_model(
+        thresholds,
+        output_dtype=output_dtype,
+        input_dtype=input_dtype,
+        threshold_dtype=threshold_dtype,
+        pe=pe,
+        actval=actval,
+    )
+    model_reference = model_reference.transform(SetExecMode("cppsim"))
+    input_values = gen_finn_dt_tensor(DataType[input_dtype], (1, 4))
+    input_dict = {"inp": input_values}
+    expected = oxe.execute_onnx(model_reference, input_dict)["out"]
+
+    model = model_reference.transform(DeltaCompressThresholds())
+    assert model.graph.node[0].op_type == "DeltaThresholding_rtl"
+    model = model.transform(PrepareIP("xczu3eg-sbva484-1-e", 5))
+    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(PrepareRTLSim())
+    actual = oxe.execute_onnx(model, input_dict)["out"]
+
     np.testing.assert_array_equal(actual, expected)
 
 
