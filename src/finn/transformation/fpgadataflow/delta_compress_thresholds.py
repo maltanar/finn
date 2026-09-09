@@ -95,10 +95,11 @@ class DeltaCompressThresholds(Transformation):
                 errors[row_index, : len(encoding[2])] = encoding[2]
             counts = np.asarray(counts, dtype=np.int64)
 
-            base_name = node.name + "_base"
-            step_name = node.name + "_step"
-            error_name = node.name + "_error"
-            count_name = node.name + "_count"
+            node_prefix = node.name if node.name else f"DeltaThresholding_{node_index}"
+            base_name = f"{node_prefix}_base"
+            step_name = f"{node_prefix}_step"
+            error_name = f"{node_prefix}_error"
+            count_name = f"{node_prefix}_count"
             model.set_initializer(base_name, bases)
             model.set_initializer(step_name, steps)
             model.set_initializer(error_name, errors)
@@ -113,7 +114,7 @@ class DeltaCompressThresholds(Transformation):
                 [node.input[0], base_name, step_name, error_name, count_name],
                 list(node.output),
                 domain="finn.custom_op.fpgadataflow.rtl",
-                name=node.name,
+                name=node_prefix,
             )
             for attribute in node.attribute:
                 new_node.attribute.append(attribute)
