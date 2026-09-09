@@ -1383,6 +1383,7 @@ def step_specialize_layers(model: ModelWrapper, cfg: DataflowBuildConfig) -> Mod
         model = model.transform(ApplyConfig(cfg.specialize_layers_config_file))
     model = model.transform(SpecializeLayers(cfg._resolve_fpga_part()))
     if cfg.enable_threshold_delta_compression:
+        model = model.transform(GiveUniqueNodeNames())
         model = model.transform(DeltaCompressThresholds())
     model = model.transform(GiveUniqueNodeNamesRecursive())
     model = model.transform(InferShapes())
