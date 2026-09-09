@@ -286,3 +286,78 @@ def test_delta_thresholding_supports_signed_thresholds_with_unsigned_input():
     assert "SIGNED = 0" in wrapper
     assert "BASE_SIGNED = 1" in wrapper
     assert "STEP_SIGNED = 0" in wrapper
+
+
+def test_delta_compress_multiple_nodes_no_collision():
+    # Two thresholding layers with different channels and step counts
+    thresh0 = np.array([[10, 12, 14, 16], [20, 22, 25, 27]], dtype=np.int64)  # 2 channels, 4 steps
+    thresh1 = np.array([[1, 3, 5], [2, 4, 6]], dtype=np.int64)                # 2 channels, 3 steps
+
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, 2])
+    mid = helper.make_tensor_value_info("mid", TensorProto.FLOAT, [1, 2])
+    out = helper.make_tensor_value_info("out", TensorProto.FLOAT, [1, 2])
+
+    # Node 0: channels=2, steps=4
+    node0 = helper.make_node(
+        "Thresholding_rtl",
+        ["inp", "thresh0"],
+        ["mid"],
+        domain="finn.custom_op.fpgadataflow.rtl",
+        backend="fpgadataflow",
+        NumChannels=2,
+        PE=1,
+        numSteps=4,
+        inputDataType="INT8",
+        weightDataType="INT8",
+        outputDataType="UINT3",
+        numInputVectors=[1],
+        ActVal=0,
+        name="",  # empty name as after SpecializeLayers
+    )
+    # Node 1: channels=2, steps=3
+    node1 = helper.make_node(
+        "Thresholding_rtl",
+        ["mid", "thresh1"],
+        ["out"],
+        domain="finn.custom_op.fpgadataflow.rtl",
+        backend="fpgadataflow",
+        NumChannels=2,
+        PE=1,
+        numSteps=3,
+        inputDataType="INT8",
+        weightDataType="INT8",
+        outputDataType="UINT3",
+        numInputVectors=[1],
+        ActVal=0,
+        name="",  # empty name as after SpecializeLayers
+    )
+
+    graph = helper.make_graph([node0, node1], "multi_node_test", [inp], [out])
+    model = ModelWrapper(helper.make_model(graph, producer_name="multi-test"))
+    model.set_tensor_datatype("inp", DataType["INT8"])
+    model.set_tensor_datatype("mid", DataType["UINT3"])
+    model.set_tensor_datatype("out", DataType["UINT3"])
+    model.set_tensor_datatype("thresh0", DataType["INT8"])
+    model.set_initializer("thresh0", thresh0)
+    model.set_tensor_datatype("thresh1", DataType["INT8"])
+    model.set_initializer("thresh1", thresh1)
+
+    model_comp = model.transform(DeltaCompressThresholds())
+
+    assert len(model_comp.graph.node) == 2
+    n0 = model_comp.graph.node[0]
+    n1 = model_comp.graph.node[1]
+    assert n0.op_type == "DeltaThresholding_rtl"
+    assert n1.op_type == "DeltaThresholding_rtl"
+
+    # Verify input parameter tensors are distinct
+    assert n0.input[1] != n1.input[1]
+    assert n0.input[2] != n1.input[2]
+    assert n0.input[3] != n1.input[3]
+    assert n0.input[4] != n1.input[4]
+
+    # Verify parameters were not overwritten
+    np.testing.assert_array_equal(model_comp.get_initializer(n0.input[1]), [10, 20])
+    np.testing.assert_array_equal(model_comp.get_initializer(n1.input[1]), [1, 2])
+    assert model_comp.get_initializer(n0.input[3]).shape == (2, 4)
+    assert model_comp.get_initializer(n1.input[3]).shape == (2, 3)
