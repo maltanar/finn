@@ -93,12 +93,6 @@ module delta_thresholding #(
                 residual_reg <= '0;
                 step_index <= '0;
                 busy <= 1'b1;
-                if (CF > 1) begin
-                    if (fold_reg == FOLD_BITS'(CF - 1))
-                        fold_reg <= '0;
-                    else
-                        fold_reg <= fold_reg + 1'b1;
-                end
             end else if (busy) begin
                 for (int pe = 0; pe < PE; pe++) begin
                     logic signed [COMP_W-1:0] base_value;
@@ -149,6 +143,12 @@ module delta_thresholding #(
                 if (step_index == STEP_BITS'(NUM_STEPS - 1)) begin
                     busy <= 1'b0;
                     output_valid <= 1'b1;
+                    if (CF > 1) begin
+                        if (fold_reg == FOLD_BITS'(CF - 1))
+                            fold_reg <= '0;
+                        else
+                            fold_reg <= fold_reg + 1'b1;
+                    end
                 end else begin
                     step_index <= step_index + 1'b1;
                 end

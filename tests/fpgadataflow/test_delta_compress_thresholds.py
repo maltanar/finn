@@ -129,14 +129,67 @@ def test_delta_thresholding_rtlsim_matches_python_reference():
         [
             [15, 17, 20, 22, 24, 27, 29],
             [4, 7, 9, 11, 13, 16, 18],
-            [15, 17, 20, 22, 24, 27, 29],
-            [4, 7, 9, 11, 13, 16, 18],
+            [-20, -17, -14, -10, -7, -4, -1],
+            [1, 3, 4, 6, 7, 9, 10],
         ],
         dtype=np.int64,
     )
     model_reference = make_thresholding_model(thresholds, pe=2)
     model_reference = model_reference.transform(SetExecMode("cppsim"))
     input_values = gen_finn_dt_tensor(DataType["INT8"], (1, 4))
+    input_dict = {"inp": input_values}
+    expected = oxe.execute_onnx(model_reference, input_dict)["out"]
+
+    model = model_reference.transform(DeltaCompressThresholds())
+    assert model.graph.node[0].op_type == "DeltaThresholding_rtl"
+    model = model.transform(PrepareIP("xczu3eg-sbva484-1-e", 5))
+    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(PrepareRTLSim())
+    actual = oxe.execute_onnx(model, input_dict)["out"]
+
+    np.testing.assert_array_equal(actual, expected)
+
+
+def test_delta_thresholding_rtlsim_multifold_distinct_channels():
+    # 4 channels, PE=1 -> CF=4 (all 4 channels folded across distinct time steps)
+    thresholds = np.array(
+        [
+            [15, 17, 20, 22, 24, 27, 29],
+            [4, 7, 9, 11, 13, 16, 18],
+            [-20, -17, -14, -10, -7, -4, -1],
+            [1, 3, 4, 6, 7, 9, 10],
+        ],
+        dtype=np.int64,
+    )
+    channels = 4
+    num_vecs = 3
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [num_vecs, channels])
+    out = helper.make_tensor_value_info("out", TensorProto.FLOAT, [num_vecs, channels])
+    node = helper.make_node(
+        "Thresholding_rtl",
+        ["inp", "thresh"],
+        ["out"],
+        domain="finn.custom_op.fpgadataflow.rtl",
+        backend="fpgadataflow",
+        NumChannels=channels,
+        PE=1,
+        numSteps=thresholds.shape[1],
+        inputDataType="INT8",
+        weightDataType="INT8",
+        outputDataType="UINT3",
+        numInputVectors=[num_vecs],
+        ActVal=0,
+        name="thresholding",
+    )
+    graph = helper.make_graph([node], "delta_thresholding", [inp], [out])
+    model_reference = ModelWrapper(helper.make_model(graph, producer_name="delta-test"))
+    model_reference.set_tensor_datatype("inp", DataType["INT8"])
+    model_reference.set_tensor_datatype("out", DataType["UINT3"])
+    model_reference.set_tensor_datatype("thresh", DataType["INT8"])
+    model_reference.set_initializer("thresh", thresholds)
+    model_reference = model_reference.transform(SetExecMode("cppsim"))
+
+    input_values = gen_finn_dt_tensor(DataType["INT8"], (num_vecs, channels))
     input_dict = {"inp": input_values}
     expected = oxe.execute_onnx(model_reference, input_dict)["out"]
 
