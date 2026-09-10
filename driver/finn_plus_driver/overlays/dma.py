@@ -332,7 +332,7 @@ class FINNDMAOverlay(Overlay):
         )
         return ibuf_packed
 
-    def enable_pipeline_buffers(self, count=2):
+    def enable_pipeline_buffers(self, count=1):
         """Allocate ping-pong buffers for host preparation and FPGA execution."""
         if self._pipeline_slots is not None:
             return
