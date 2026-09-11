@@ -414,3 +414,70 @@ def test_delta_compress_multiple_nodes_no_collision():
     np.testing.assert_array_equal(model_comp.get_initializer(n1.input[1]), [1, 2])
     assert model_comp.get_initializer(n0.input[3]).shape == (2, 4)
     assert model_comp.get_initializer(n1.input[3]).shape == (2, 3)
+
+
+def test_delta_thresholding_rtlsim_unreachable_counts_and_negative_thresholds():
+    channels = 4
+    num_steps = 15
+    num_vecs = 3
+    pe = 1
+
+    thresholds = np.array(
+        [
+            # ch 0: negative base, valid up to count 10
+            [-150, -135, -120, -104, -89, -74, -59, -43, -28, -13, 2147483648, 2147483648, 2147483648, 2147483648, 2147483648],
+            # ch 1: positive base, all 15 valid
+            [10, 20, 31, 41, 51, 62, 72, 82, 93, 103, 113, 124, 134, 144, 155],
+            # ch 2: negative base, valid up to count 6
+            [-80, -60, -39, -19, 1, 22, 2147483648, 2147483648, 2147483648, 2147483648, 2147483648, 2147483648, 2147483648, 2147483648, 2147483648],
+            # ch 3: small base, valid up to count 12
+            [-10, -5, 0, 6, 11, 16, 22, 27, 32, 38, 43, 48, 2147483648, 2147483648, 2147483648],
+        ],
+        dtype=np.int64,
+    )
+
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [num_vecs, channels])
+    out = helper.make_tensor_value_info("out", TensorProto.FLOAT, [num_vecs, channels])
+    node = helper.make_node(
+        "Thresholding_rtl",
+        ["inp", "thresh"],
+        ["out"],
+        domain="finn.custom_op.fpgadataflow.rtl",
+        backend="fpgadataflow",
+        NumChannels=channels,
+        PE=pe,
+        numSteps=num_steps,
+        inputDataType="INT10",
+        weightDataType="INT33",
+        outputDataType="UINT4",
+        numInputVectors=[num_vecs],
+        ActVal=0,
+        name="thresholding",
+    )
+    graph = helper.make_graph([node], "unreachable_test", [inp], [out])
+    model_ref = ModelWrapper(helper.make_model(graph, producer_name="unreachable-test"))
+    model_ref.set_tensor_datatype("inp", DataType["INT10"])
+    model_ref.set_tensor_datatype("out", DataType["UINT4"])
+    model_ref.set_tensor_datatype("thresh", DataType["INT33"])
+    model_ref.set_initializer("thresh", thresholds)
+    model_ref = model_ref.transform(SetExecMode("cppsim"))
+
+    input_values = np.array(
+        [
+            [-200, 0, -100, -20],
+            [-50, 80, 0, 20],
+            [100, 200, 150, 100],
+        ],
+        dtype=np.float32,
+    )
+    input_dict = {"inp": input_values}
+    expected = oxe.execute_onnx(model_ref, input_dict)["out"]
+
+    model = model_ref.transform(DeltaCompressThresholds())
+    assert model.graph.node[0].op_type == "DeltaThresholding_rtl"
+    model = model.transform(PrepareIP("xczu3eg-sbva484-1-e", 5))
+    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(PrepareRTLSim())
+    actual = oxe.execute_onnx(model, input_dict)["out"]
+
+    np.testing.assert_array_equal(actual, expected)

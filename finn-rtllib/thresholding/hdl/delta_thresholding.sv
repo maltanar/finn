@@ -42,7 +42,9 @@ module delta_thresholding #(
     logic [CW-1:0] count_mem [PE][CF];
     logic [PE-1:0][WI-1:0] input_reg;
     logic [PE-1:0][O_BITS-1:0] count_reg;
-    logic [PE-1:0][EW-1:0] residual_reg;
+    logic signed [COMP_W-1:0] threshold_reg [PE];
+    logic signed [COMP_W-1:0] step_reg [PE];
+    logic [CW-1:0] count_reg_val [PE];
     logic [FOLD_BITS-1:0] fold_reg;
     logic [STEP_BITS-1:0] step_index;
     logic busy;
@@ -81,8 +83,12 @@ module delta_thresholding #(
             step_index <= '0;
             input_reg <= '0;
             count_reg <= '0;
-            residual_reg <= '0;
             output_reg <= '0;
+            for (int pe = 0; pe < PE; pe++) begin
+                threshold_reg[pe] <= '0;
+                step_reg[pe] <= '0;
+                count_reg_val[pe] <= '0;
+            end
         end else begin
             if (output_valid && ordy)
                 output_valid <= 1'b0;
@@ -90,51 +96,53 @@ module delta_thresholding #(
             if (!busy && irdy && ivld) begin
                 input_reg <= idat;
                 count_reg <= '0;
-                residual_reg <= '0;
                 step_index <= '0;
                 busy <= 1'b1;
-            end else if (busy) begin
                 for (int pe = 0; pe < PE; pe++) begin
-                    logic signed [COMP_W-1:0] base_value;
-                    logic signed [COMP_W-1:0] step_value;
-                    logic signed [COMP_W-1:0] threshold_value;
-                    logic signed [COMP_W-1:0] input_value;
-                    logic [EW-1:0] residual_value;
-                    logic comparison;
-                    logic [CW-1:0] count_value;
-                    integer error_index;
-                    integer output_value;
                     if (BASE_SIGNED)
-                        base_value = $signed(
+                        threshold_reg[pe] <= $signed(
                             {{(COMP_W-BW){base_mem[pe][fold_reg][BW-1]}}, base_mem[pe][fold_reg]}
                         );
                     else
-                        base_value = $signed(
+                        threshold_reg[pe] <= $signed(
                             {{(COMP_W-BW){1'b0}}, base_mem[pe][fold_reg]}
                         );
+
                     if (STEP_SIGNED)
-                        step_value = $signed(
+                        step_reg[pe] <= $signed(
                             {{(COMP_W-SW){step_mem[pe][fold_reg][SW-1]}}, step_mem[pe][fold_reg]}
                         );
                     else
-                        step_value = $signed(
+                        step_reg[pe] <= $signed(
                             {{(COMP_W-SW){1'b0}}, step_mem[pe][fold_reg]}
                         );
-                    error_index = int'(fold_reg) * NUM_STEPS + int'(step_index);
-                    residual_value = residual_reg[pe] + error_mem[pe][error_index];
-                    count_value = count_mem[pe][fold_reg];
-                    threshold_value = base_value
-                        + step_value * $signed({1'b0, step_index})
-                        + residual_value;
+
+                    count_reg_val[pe] <= count_mem[pe][fold_reg];
+                end
+            end else if (busy) begin
+                for (int pe = 0; pe < PE; pe++) begin
+                    logic signed [COMP_W-1:0] input_value;
+                    logic comparison;
+                    integer output_value;
+                    logic next_error;
+                    integer next_error_index;
+
                     if (SIGNED)
                         input_value = $signed(
                             {{(COMP_W-WI){input_reg[pe][WI-1]}}, input_reg[pe]}
                         );
                     else
                         input_value = $signed({{(COMP_W-WI){1'b0}}, input_reg[pe]});
-                    comparison = (step_index < count_value) && (threshold_value <= input_value);
+
+                    comparison = (step_index < count_reg_val[pe]) && (threshold_reg[pe] <= input_value);
                     count_reg[pe] <= count_reg[pe] + comparison;
-                    residual_reg[pe] <= residual_value;
+
+                    if (step_index < STEP_BITS'(NUM_STEPS - 1)) begin
+                        next_error_index = int'(fold_reg) * NUM_STEPS + int'(step_index) + 1;
+                        next_error = error_mem[pe][next_error_index];
+                        threshold_reg[pe] <= threshold_reg[pe] + step_reg[pe] + $signed({{(COMP_W-1){1'b0}}, next_error});
+                    end
+
                     output_value = int'(count_reg[pe]) + int'(comparison) + BIAS;
                     if (step_index == STEP_BITS'(NUM_STEPS - 1))
                         output_reg[pe] <= output_value[O_BITS-1:0];
