@@ -40,7 +40,7 @@ from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import SortGraph
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
-from qonnx.util.basic import get_by_name
+from qonnx.util.basic import get_by_name, remove_by_name
 from qonnx.util.onnx import nchw_to_nhwc
 
 # Module containing specializations of elementwise binary operations
@@ -155,6 +155,40 @@ class InferConvInpGen(Transformation):
             model = model.transform(InferShapes())
             model = model.transform(InferDataTypes())
         return (model, graph_modified)
+
+
+class InferReshape(Transformation):
+    """Convert static ONNX Reshape nodes into FINN Reshape layers."""
+
+    def apply(self, model: ModelWrapper) -> tuple[ModelWrapper, bool]:
+        graph_modified = False
+        for node in model.graph.node:
+            if node.op_type != "Reshape" or node.domain == "finn.custom_op.fpgadataflow":
+                continue
+            out_shape = model.get_initializer(node.input[1])
+            inp_shape = model.get_tensor_shape(node.input[0])
+            if out_shape is None or inp_shape is None or np.any(out_shape == 0):
+                continue
+            if list(out_shape).count(-1) > 1:
+                continue
+            out_shape = list(out_shape)
+            if -1 in out_shape:
+                out_shape[out_shape.index(-1)] = int(np.prod(inp_shape) / abs(np.prod(out_shape)))
+
+            node.domain = "finn.custom_op.fpgadataflow"
+            reshape = getCustomOp(node)
+            reshape.set_nodeattr("backend", "fpgadataflow")
+            remove_by_name(node.attribute, "allowzero")
+            reshape.set_nodeattr("inp_shape", list(inp_shape))
+            reshape.set_nodeattr("out_shape", [int(x) for x in out_shape])
+            reshape.set_nodeattr("dtype", model.get_tensor_datatype(node.input[0]).name)
+            node.input.pop(1)
+            graph_modified = True
+
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+        return model, graph_modified
 
 
 class InferThresholdingLayer(Transformation):
@@ -1428,10 +1462,9 @@ class InferLUTNeuronLayer(Transformation):
 
     def apply(self, model):
         graph = model.graph
-        node_ind = 0
         graph_modified = False
+        replacements = []
         for node in graph.node:
-            node_ind += 1
             if node.op_type != "LookupTable" or node.domain != "qonnx.custom_op.lnn":
                 continue
             node_inst = getCustomOp(node)
@@ -1451,6 +1484,10 @@ class InferLUTNeuronLayer(Transformation):
                 continue
             input_bits = node_inst.get_nodeattr("input_bits")
             idt = model.get_tensor_datatype(node.input[0])
+            if input_bits == 1 and np.isin(table, [0, 1]).all():
+                if idt in [DataType["FLOAT32"], DataType["UINT8"]]:
+                    model.set_tensor_datatype(node.input[0], DataType["BINARY"])
+                    idt = DataType["BINARY"]
             if (not idt.is_integer()) or idt.signed() or idt.bitwidth() != input_bits:
                 warnings.warn(
                     "%s: input datatype %s does not match input_bits=%d, skipping"
@@ -1483,8 +1520,12 @@ class InferLUTNeuronLayer(Transformation):
                 OutputType=odt.name,
                 numInputVectors=[int(x) for x in ishape[:-1]],
             )
+            replacements.append((node, new_node))
+
+        for old_node, new_node in replacements:
+            node_ind = list(graph.node).index(old_node)
             graph.node.insert(node_ind, new_node)
-            graph.node.remove(node)
+            graph.node.remove(old_node)
             graph_modified = True
 
         if graph_modified:

@@ -74,6 +74,7 @@ from finn.custom_op.fpgadataflow.pad1d import Pad1D
 from finn.custom_op.fpgadataflow.pool import Pool
 from finn.custom_op.fpgadataflow.pwpolyf import PWPolyF
 from finn.custom_op.fpgadataflow.requant import Requant
+from finn.custom_op.fpgadataflow.reshape import Reshape
 from finn.custom_op.fpgadataflow.selecttoken import SelectToken
 from finn.custom_op.fpgadataflow.shuffle import Shuffle
 from finn.custom_op.fpgadataflow.split import StreamingSplit
@@ -118,5 +119,6 @@ custom_op["StreamingDataWidthConverter"] = StreamingDataWidthConverter
 custom_op["UpsampleNearestNeighbour"] = UpsampleNearestNeighbour
 custom_op["HWSoftmax"] = HWSoftmax
 custom_op["Requant"] = Requant
+custom_op["Reshape"] = Reshape
 custom_op["HWWhere"] = HWWhere
 custom_op["SelectToken"] = SelectToken

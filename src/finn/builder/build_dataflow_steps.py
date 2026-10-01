@@ -563,6 +563,7 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
     model = model.transform(absorb.AbsorbConsecutiveTransposes())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(InferDataLayouts())
+    model = model.transform(to_hw.InferReshape())
 
     # Shuffle inference (should come after InferDataLayouts and handles Transpose+Reshape patterns)
     # InferShuffle skips first Transpose by default; override to convert all if disabled

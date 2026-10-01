@@ -46,6 +46,7 @@ from finn.custom_op.fpgadataflow.rtl.matrixvectoractivation_rtl import MVAU_rtl
 from finn.custom_op.fpgadataflow.rtl.pad1d_rtl import Pad1D_rtl
 from finn.custom_op.fpgadataflow.rtl.pwpolyf_rtl import PWPolyF_rtl
 from finn.custom_op.fpgadataflow.rtl.requant_rtl import Requant_rtl
+from finn.custom_op.fpgadataflow.rtl.reshape_rtl import Reshape_rtl
 from finn.custom_op.fpgadataflow.rtl.selecttoken_rtl import SelectToken_rtl
 from finn.custom_op.fpgadataflow.rtl.streamingdatawidthconverter_rtl import (
     StreamingDataWidthConverter_rtl,
@@ -76,6 +77,7 @@ custom_op["Thresholding_rtl"] = Thresholding_rtl
 custom_op["HWSoftmax_rtl"] = HWSoftmax_rtl
 custom_op["InnerShuffle_rtl"] = InnerShuffle_rtl
 custom_op["Requant_rtl"] = Requant_rtl
+custom_op["Reshape_rtl"] = Reshape_rtl
 custom_op["HWWhere_rtl"] = HWWhere_rtl
 custom_op["SelectToken_rtl"] = SelectToken_rtl
 
