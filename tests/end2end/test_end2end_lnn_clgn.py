@@ -7,6 +7,7 @@ from pathlib import Path
 import os
 
 import numpy as np
+import pytest
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
@@ -29,8 +30,19 @@ from finn.transformation.fpgadataflow.infer_globalaccpool_from_reducesum import 
     InferGlobalAccPoolFromReduceSum,
 )
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+from finn.builder.build_dataflow_config import DataflowBuildConfig, DataflowOutputType
+from finn.builder.build_dataflow_steps import (
+    step_create_dataflow_partition,
+    step_create_stitched_ip,
+    step_hw_codegen,
+    step_hw_ipgen,
+    step_set_fifo_depths,
+)
+from finn.core.onnx_exec import execute_onnx
 
-
+# TODO this won't work as a FINN testcase as it tries to fetch it
+# from higher up in the directory hierarchy, should go into the test 
+# data directory instead
 MODEL_PATH = (
     Path(__file__).resolve().parents[3]
     / "qonnx-lonnx"
@@ -68,6 +80,8 @@ def _lower_lookup_convs():
 
 
 def _normalize_binary_lookup_datatypes(model):
+    # TODO: this is a hacky solution, LookupTable nodes are not guaranteed
+    # to be using binary datatypes for their inputs and outputs?
     for node in model.graph.node:
         if node.op_type != "LookupTable" or node.domain != "qonnx.custom_op.lnn":
             continue
@@ -86,6 +100,21 @@ def _normalize_binary_im2col_inputs(model):
     for node in model.graph.node:
         if node.op_type == "Im2Col":
             model.set_tensor_datatype(node.input[0], DataType["BINARY"])
+    return model
+
+
+def _restore_lutneuron_hardware_types(model):
+    for node in model.graph.node:
+        if not node.op_type.startswith("LUTNeuron"):
+            continue
+        table = model.get_initializer(node.input[2])
+        if table is None:
+            continue
+        node_inst = getCustomOp(node)
+        fan_in = node_inst.get_nodeattr("FanIn")
+        input_bits = int(np.log2(table.shape[1]) / fan_in)
+        if input_bits == 1:
+            node_inst.set_nodeattr("InputType", "BINARY")
     return model
 
 
@@ -210,6 +239,7 @@ def test_lnn_clgn_lower_reduce_sum_to_global_acc_pool():
     model = model.transform(AbsorbTransposeIntoLUTNeuron())
     model = model.transform(InferGlobalAccPoolFromReduceSum())
     model = model.transform(SpecializeLayers("xc7z020clg400-1"))
+    model = _restore_lutneuron_hardware_types(model)
 
     assert len(model.get_nodes_by_op_type("ReduceSum")) == 0
     assert len(model.get_nodes_by_op_type("GlobalAccPool_hls")) == 1
@@ -218,3 +248,64 @@ def test_lnn_clgn_lower_reduce_sum_to_global_acc_pool():
     checkpoint_dir = _checkpoint_dir("lnn_clgn_step7_global_acc_pool")
     model.save(str(checkpoint_dir / "global_acc_pool.onnx"))
     _write_graph_report(model, checkpoint_dir / "graph.txt")
+
+
+@pytest.mark.slow
+@pytest.mark.vivado
+def test_lnn_clgn_stitched_ip_rtlsim():
+    model = _lower_lookup_convs()
+    model = _normalize_binary_lookup_datatypes(model)
+    model = _normalize_binary_im2col_inputs(model)
+    model = model.transform(InferLUTNeuronLayer())
+    model = model.transform(InferPool())
+    # TODO should mark input tensor as binary for dtype propagation
+    # TODO why is this necessary? dtype propagation not working?
+    # TODO: LUTNeuron dtype inference should look at actual output dtype, not container type
+    #model = _normalize_binary_im2col_inputs(model)
+    model = model.transform(InferConvInpGen())
+    model = model.transform(AbsorbConsecutiveTransposes())
+    model = model.transform(InferReshape())
+    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
+    model = model.transform(AbsorbTransposeIntoLUTNeuron())
+    model = model.transform(InferGlobalAccPoolFromReduceSum())
+    model = model.transform(InferDataTypes())
+    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
+
+    checkpoint_dir = _checkpoint_dir("lnn_clgn_step8_stitched_ip_rtlsim")
+    cfg = DataflowBuildConfig(
+        output_dir=str(checkpoint_dir),
+        synth_clk_period_ns=5.0,
+        fpga_part="xc7z020clg400-1",
+        generate_outputs=[DataflowOutputType.STITCHED_IP],
+        verify_steps=[],
+        auto_fifo_depths=False,
+    )
+    child = step_create_dataflow_partition(model, cfg)
+    child = step_set_fifo_depths(child, cfg)
+    # TODO is this needed? or are we OK to run without overriding dtypes?
+    child = _restore_lutneuron_hardware_types(child)
+
+    input_name = child.get_first_global_in()
+    input_shape = tuple(child.get_tensor_shape(input_name))
+    rng = np.random.default_rng(0)
+    original = ModelWrapper(str(MODEL_PATH))
+    original_input_name = original.get_first_global_in()
+    original_input_shape = tuple(original.get_tensor_shape(original_input_name))
+    original_input = rng.integers(0, 2, size=original_input_shape).astype(np.float32)
+    expected = execute_onnx(original, {original_input_name: original_input})[
+        original.get_first_global_out()
+    ]
+    input_data = original_input.transpose(0, 2, 3, 1).reshape(input_shape)
+
+    child = step_hw_codegen(child, cfg)
+    child = step_hw_ipgen(child, cfg)
+    child = step_create_stitched_ip(child, cfg)
+    assert child.get_metadata_prop("vivado_stitch_proj") is not None
+
+    child.set_metadata_prop("exec_mode", "rtlsim")
+    child.set_metadata_prop("rtlsim_liveness_estimate", "100000")
+    actual = execute_onnx(child, {input_name: input_data})[child.get_first_global_out()]
+    np.testing.assert_allclose(actual, expected)
+
+    child.save(str(checkpoint_dir / "stitched_ip_rtlsim.onnx"))
+    _write_graph_report(child, checkpoint_dir / "graph.txt")
