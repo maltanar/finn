@@ -33,7 +33,7 @@
 set -eo pipefail
 
 # lonnx: qonnx fork adding the qonnx.custom_op.lnn domain (LookupTable et al.)
-QONNX_COMMIT="51b7c3c907966f8203ffdc7f03d0b5e31cdad671"
+QONNX_COMMIT="d0b6acf93a11d21e5236de478efa133cea2b77d5"
 FINN_EXP_COMMIT="0724be21111a21f0d81a072fccc1c446e053f851"
 BREVITAS_COMMIT="aad4d5a293db6f2ec622a92a5d3278e47072453e"
 HLSLIB_COMMIT="8d979e2bdced486dd25d26607d1ff5ae327ed6a8"
