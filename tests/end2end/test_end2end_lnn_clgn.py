@@ -26,10 +26,13 @@ from finn.transformation.fpgadataflow.convert_to_hw_layers import (
 from finn.transformation.fpgadataflow.absorb_transpose_into_lutneuron import (
     AbsorbTransposeIntoLUTNeuron,
 )
-from finn.transformation.fpgadataflow.infer_globalaccpool_from_reducesum import (
-    InferGlobalAccPoolFromReduceSum,
+from finn.transformation.fpgadataflow.infer_sumpool_from_reducesum import (
+    InferSumPoolFromReduceSum,
 )
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.builder.build_dataflow_config import DataflowBuildConfig, DataflowOutputType
 from finn.builder.build_dataflow_steps import (
     step_create_dataflow_partition,
@@ -226,7 +229,7 @@ def test_lnn_clgn_absorb_transpose_into_lutneuron():
     _write_graph_report(model, checkpoint_dir / "graph.txt")
 
 
-def test_lnn_clgn_lower_reduce_sum_to_global_acc_pool():
+def test_lnn_clgn_lower_reduce_sum_to_sumpool():
     model = _lower_lookup_convs()
     model = _normalize_binary_lookup_datatypes(model)
     model = model.transform(InferLUTNeuronLayer())
@@ -237,16 +240,21 @@ def test_lnn_clgn_lower_reduce_sum_to_global_acc_pool():
     model = model.transform(InferReshape())
     model = model.transform(SpecializeLayers("xc7z020clg400-1"))
     model = model.transform(AbsorbTransposeIntoLUTNeuron())
-    model = model.transform(InferGlobalAccPoolFromReduceSum())
+    model = model.transform(InferSumPoolFromReduceSum())
     model = model.transform(SpecializeLayers("xc7z020clg400-1"))
     model = _restore_lutneuron_hardware_types(model)
 
     assert len(model.get_nodes_by_op_type("ReduceSum")) == 0
-    assert len(model.get_nodes_by_op_type("GlobalAccPool_hls")) == 1
-    assert len(model.get_nodes_by_op_type("Reshape_rtl")) == 4
+    sumpool_nodes = [
+        getCustomOp(node)
+        for node in model.get_nodes_by_op_type("Pool_hls")
+        if getCustomOp(node).get_nodeattr("Function") == "SumPool"
+    ]
+    assert len(sumpool_nodes) == 1
+    assert len(model.get_nodes_by_op_type("Reshape_rtl")) == 3
 
-    checkpoint_dir = _checkpoint_dir("lnn_clgn_step7_global_acc_pool")
-    model.save(str(checkpoint_dir / "global_acc_pool.onnx"))
+    checkpoint_dir = _checkpoint_dir("lnn_clgn_step7_sumpool")
+    model.save(str(checkpoint_dir / "sumpool.onnx"))
     _write_graph_report(model, checkpoint_dir / "graph.txt")
 
 
@@ -267,9 +275,10 @@ def test_lnn_clgn_stitched_ip_rtlsim():
     model = model.transform(InferReshape())
     model = model.transform(SpecializeLayers("xc7z020clg400-1"))
     model = model.transform(AbsorbTransposeIntoLUTNeuron())
-    model = model.transform(InferGlobalAccPoolFromReduceSum())
+    model = model.transform(InferSumPoolFromReduceSum())
     model = model.transform(InferDataTypes())
     model = model.transform(SpecializeLayers("xc7z020clg400-1"))
+    
 
     checkpoint_dir = _checkpoint_dir("lnn_clgn_step8_stitched_ip_rtlsim")
     cfg = DataflowBuildConfig(
@@ -296,6 +305,13 @@ def test_lnn_clgn_stitched_ip_rtlsim():
         original.get_first_global_out()
     ]
     input_data = original_input.transpose(0, 2, 3, 1).reshape(input_shape)
+    python_child = child.transform(SetExecMode("cppsim"))
+    python_child = python_child.transform(PrepareCppSim())
+    python_child = python_child.transform(CompileCppSim())
+    python_expected = execute_onnx(python_child, {input_name: input_data})[
+        python_child.get_first_global_out()
+    ]
+    np.save(checkpoint_dir / "python_child_output.npy", python_expected)
 
     child = step_hw_codegen(child, cfg)
     child = step_hw_ipgen(child, cfg)
@@ -305,6 +321,7 @@ def test_lnn_clgn_stitched_ip_rtlsim():
     child.set_metadata_prop("exec_mode", "rtlsim")
     child.set_metadata_prop("rtlsim_liveness_estimate", "100000")
     actual = execute_onnx(child, {input_name: input_data})[child.get_first_global_out()]
+    np.testing.assert_allclose(actual, python_expected)
     np.testing.assert_allclose(actual, expected)
 
     child.save(str(checkpoint_dir / "stitched_ip_rtlsim.onnx"))
