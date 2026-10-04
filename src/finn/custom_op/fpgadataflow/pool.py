@@ -59,8 +59,7 @@ class Pool(HWCustomOp):
             # Function:
             #  - MaxPool
             #  - QuantAvgPool
-            # TODO add support for AvgPool and AccPool
-            "Function": ("s", True, "", {"MaxPool", "QuantAvgPool"}),
+            "Function": ("s", True, "", {"MaxPool", "QuantAvgPool", "SumPool"}),
             "OutImgDims": ("ints", True, []),
             # FINN DataTypes for inputs/outputs
             "InputDataType": ("s", True, ""),
@@ -92,6 +91,8 @@ class Pool(HWCustomOp):
                 idt.signed() == odt.signed()
             ), """QuantAvgPool: Can't mix signed
             and unsigned datatypes"""
+        elif fxn == "SumPool":
+            pass
         else:
             raise Exception("Pool_Batch doesn't currently support " + fxn)
 
@@ -177,7 +178,7 @@ class Pool(HWCustomOp):
 
         # check supported function
         fnx = self.get_nodeattr("Function")
-        if fnx in ["MaxPool", "QuantAvgPool"]:
+        if fnx in ["MaxPool", "QuantAvgPool", "SumPool"]:
             info_messages.append("Attribute Function contains a supported pool function")
         else:
             info_messages.append("Attribute Function contains an unsupported pool function")
@@ -209,5 +210,7 @@ class Pool(HWCustomOp):
             shift_bits = shift_bits if shift_bits >= 0 else 0
             result = np.sum(tmp_values, axis=3)
             result = np.right_shift(result.astype(int), shift_bits)
+        elif fnx == "SumPool":
+            result = np.sum(tmp_values, axis=3)
         oshape = context[node.output[0]].shape
         context[node.output[0]] = np.asarray(result, dtype=np.float32).reshape(oshape)
