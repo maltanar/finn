@@ -347,6 +347,7 @@ default_build_dataflow_steps = [
     "step_target_fps_parallelization",
     "step_apply_folding_config",
     "step_minimize_bit_width",
+    "step_delta_compress_thresholds",
     "step_transpose_decomposition",
     "step_generate_estimate_reports",
     "step_assign_ddr_weight_offsets",
@@ -372,6 +373,7 @@ estimate_only_dataflow_steps = [
     "step_target_fps_parallelization",
     "step_apply_folding_config",
     "step_minimize_bit_width",
+    "step_delta_compress_thresholds",
     "step_generate_estimate_reports",
 ]
 
