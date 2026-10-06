@@ -21,7 +21,7 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
     parameter ERROR_PATH = $ERROR_PATH$
     , parameter COUNT_PATH = $COUNT_PATH$
 ) (
-    (* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF in0_V:out_V, ASSOCIATED_RESET ap_rst_n" *)
+    (* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF in0_V:out0_V, ASSOCIATED_RESET ap_rst_n" *)
     (* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk CLK" *)
     input ap_clk,
     (* X_INTERFACE_PARAMETER = "POLARITY ACTIVE_LOW" *)
@@ -29,9 +29,9 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
     output in0_V_TREADY,
     input in0_V_TVALID,
     input [((PE*WI+7)/8)*8-1:0] in0_V_TDATA,
-    input out_V_TREADY,
-    output out_V_TVALID,
-    output [((PE*O_BITS+7)/8)*8-1:0] out_V_TDATA
+    input out0_V_TREADY,
+    output out0_V_TVALID,
+    output [((PE*O_BITS+7)/8)*8-1:0] out0_V_TDATA
 );
     delta_thresholding #(
         .N(N), .O_BITS(O_BITS), .WI(WI), .WT(WT), .BW(BW), .SW(SW),
@@ -41,11 +41,11 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
     ) core (
         .clk(ap_clk), .rst(!ap_rst_n),
         .irdy(in0_V_TREADY), .ivld(in0_V_TVALID), .idat(in0_V_TDATA[PE*WI-1:0]),
-        .ordy(out_V_TREADY), .ovld(out_V_TVALID), .odat(out_V_TDATA[PE*O_BITS-1:0])
+        .ordy(out0_V_TREADY), .ovld(out0_V_TVALID), .odat(out0_V_TDATA[PE*O_BITS-1:0])
     );
     generate
         if (((PE*O_BITS+7)/8)*8 > PE*O_BITS)
-            assign out_V_TDATA[((PE*O_BITS+7)/8)*8-1:PE*O_BITS] =
+            assign out0_V_TDATA[((PE*O_BITS+7)/8)*8-1:PE*O_BITS] =
                 {((((PE*O_BITS+7)/8)*8)-PE*O_BITS){1'b0}};
     endgenerate
 endmodule

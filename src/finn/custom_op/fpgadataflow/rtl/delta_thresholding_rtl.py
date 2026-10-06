@@ -195,7 +195,7 @@ class DeltaThresholding_rtl(Thresholding_rtl):
         sim = self.get_rtlsim()
         input_bits = self.get_instream_width()
         rtlsim_input = npy_to_rtlsim_input(input_path, export_idt, input_bits)
-        io_dict = {"inputs": {"in0": rtlsim_input}, "outputs": {"out": []}}
+        io_dict = {"inputs": {"in0": rtlsim_input}, "outputs": {"out0": []}}
         self.reset_rtlsim(sim)
         self.rtlsim_multi_io(sim, io_dict)
         self.close_rtlsim(sim)
@@ -204,7 +204,7 @@ class DeltaThresholding_rtl(Thresholding_rtl):
         output_dtype = self.get_output_datatype()
         output_shape = self.get_folded_output_shape()
         rtlsim_output_to_npy(
-            io_dict["outputs"]["out"],
+            io_dict["outputs"]["out0"],
             output_path,
             output_dtype,
             output_shape,
