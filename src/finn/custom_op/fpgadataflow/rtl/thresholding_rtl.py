@@ -220,29 +220,8 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         if not self.get_nodeattr("mlo_max_iter"):
             self.generate_params(model, t_path)
 
-        thresholds, bias, wdt = self.get_rtl_thresholds(thresholds)
-        output_data_type = self.get_nodeattr("outputDataType")  # output precision
+        bias = self.get_nodeattr("ActVal")  # activation bias value
         input_data_type = self.get_nodeattr("inputDataType")  # input/threshold precision
-        o_bitwidth = DataType[output_data_type].bitwidth()
-        expected_thresholds = 2**o_bitwidth - 1
-
-        t_path = self.get_nodeattr("code_gen_dir_ipgen")
-        if self.get_nodeattr("runtime_writeable_weights") == 1:
-            thresh_file_name = f"{t_path}/memblock.dat"
-            self.make_weight_file(thresholds, "decoupled", thresh_file_name)
-
-        n_thres_steps = thresholds.shape[1]
-
-        # add dummy dimension as final dimension (that's what gets packed with next call)
-        t_expand = np.expand_dims(thresholds, axis=-1)
-        bw_hexdigit = roundup_to_integer_multiple(wdt.bitwidth(), 4)
-        t_packed = pack_innermost_dim_as_hex_string(
-            t_expand,
-            wdt,
-            bw_hexdigit,
-            prefix="",
-        )
-
         pe = self.get_nodeattr("PE")
         num_channels = self.get_nodeattr("NumChannels")  # number of channels
         n_thres_steps = self.get_nodeattr("numSteps")
