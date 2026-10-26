@@ -1488,18 +1488,23 @@ class InferLUTNeuronLayer(Transformation):
                 if idt in [DataType["FLOAT32"], DataType["UINT8"]]:
                     model.set_tensor_datatype(node.input[0], DataType["BINARY"])
                     idt = DataType["BINARY"]
-            if (not idt.is_integer()) or idt.signed() or idt.bitwidth() != input_bits:
+
+            # Calculate total input wires: if input_bits == 1 and input is multi-bit integer,
+            # wires are extracted directly from bit positions without glue logic.
+            total_input_wires = int(ishape[-1]) * int(idt.bitwidth() // input_bits)
+
+            if (not idt.is_integer()) or idt.signed():
                 warnings.warn(
-                    "%s: input datatype %s does not match input_bits=%d, skipping"
-                    % (node.name, idt.name, input_bits)
+                    "%s: input datatype %s is not unsigned integer, skipping"
+                    % (node.name, idt.name)
                 )
                 continue
             num_neurons, fan_in = indices.shape
             if table.shape != (num_neurons, 2 ** (fan_in * input_bits)):
                 warnings.warn("%s: table shape inconsistent with indices, skipping" % node.name)
                 continue
-            if indices.min() < 0 or indices.max() >= ishape[-1]:
-                warnings.warn("%s: indices out of range for input shape, skipping" % node.name)
+            if indices.min() < 0 or indices.max() >= total_input_wires:
+                warnings.warn("%s: indices out of range for input shape (%d >= %d), skipping" % (node.name, indices.max(), total_input_wires))
                 continue
             # the LookupTable op derives the output datatype from the table's
             # container type and its out_bits attribute
@@ -1513,10 +1518,10 @@ class InferLUTNeuronLayer(Transformation):
                 domain="finn.custom_op.fpgadataflow",
                 backend="fpgadataflow",
                 name="LUTNeuron_" + node.name,
-                NumInputs=int(ishape[-1]),
+                NumInputs=int(total_input_wires),
                 NumNeurons=int(num_neurons),
                 FanIn=int(fan_in),
-                InputType=idt.name,
+                InputType="BINARY" if input_bits == 1 else idt.name,
                 OutputType=odt.name,
                 numInputVectors=[int(x) for x in ishape[:-1]],
             )

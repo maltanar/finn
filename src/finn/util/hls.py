@@ -55,7 +55,7 @@ class CallHLS:
         """Builds the bash script with given parameters and saves it in given folder.
         To guarantee the generation in the correct folder the bash script contains a
         cd command."""
-        vivado_path = os.environ.get("XILINX_VIVADO")
+        vivado_path = os.environ.get("XILINX_VIVADO") or os.environ.get("FINN_XILINX_PATH", "") + "/Vivado/" + os.environ.get("FINN_XILINX_VERSION", "2024.2")
         # xsi kernel lib name depends on Vivado version (renamed in 2024.2)
         match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
         year, minor = int(match.group(1)), int(match.group(2))
