@@ -26,10 +26,13 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+from finn.custom_op.fpgadataflow.rtl.abs_rtl import Abs_rtl
+from finn.custom_op.fpgadataflow.rtl.bitglue_rtl import BitGlue_rtl
 from finn.custom_op.fpgadataflow.rtl.convolutioninputgenerator_rtl import (
     ConvolutionInputGenerator_rtl,
 )
 from finn.custom_op.fpgadataflow.rtl.crop_rtl import Crop_rtl
+from finn.custom_op.fpgadataflow.rtl.duplicatestreams_rtl import DuplicateStreams_rtl
 from finn.custom_op.fpgadataflow.rtl.elementwise_binary_rtl import (
     ElementwiseAdd_rtl,
     ElementwiseMul_rtl,
@@ -80,5 +83,8 @@ custom_op["Requant_rtl"] = Requant_rtl
 custom_op["Reshape_rtl"] = Reshape_rtl
 custom_op["HWWhere_rtl"] = HWWhere_rtl
 custom_op["SelectToken_rtl"] = SelectToken_rtl
+custom_op["Abs_rtl"] = Abs_rtl
+custom_op["BitGlue_rtl"] = BitGlue_rtl
+custom_op["DuplicateStreams_rtl"] = DuplicateStreams_rtl
 
 custom_op["FINNLoop"] = FINNLoop

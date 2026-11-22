@@ -52,6 +52,8 @@ def register_custom_op(cls):
 # Import the submodule containing specializations of ElementwiseBinaryOperation
 # Note: This will automatically register all decorated classes into this domain
 import finn.custom_op.fpgadataflow.elementwise_binary
+from finn.custom_op.fpgadataflow.abs import Abs
+from finn.custom_op.fpgadataflow.bitglue import BitGlue
 from finn.custom_op.fpgadataflow.concat import StreamingConcat
 from finn.custom_op.fpgadataflow.convolutioninputgenerator import (
     ConvolutionInputGenerator,
@@ -122,3 +124,5 @@ custom_op["Requant"] = Requant
 custom_op["Reshape"] = Reshape
 custom_op["HWWhere"] = HWWhere
 custom_op["SelectToken"] = SelectToken
+custom_op["Abs"] = Abs
+custom_op["BitGlue"] = BitGlue
